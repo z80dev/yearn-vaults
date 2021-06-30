@@ -2,13 +2,13 @@ from pathlib import Path
 import yaml
 import click
 
-from brownie import Token, Vault, Registry, accounts, network, web3
+from brownie import Token, MillennialVault, MillennialAutoCompoundTomb, MillennialAutoCompoundSpirit, MillennialAutoCompoundBoo, Registry, accounts, network, web3, MillennialAutoCompoundPopsicle
 from eth_utils import is_checksum_address
 from semantic_version import Version
 
 
-DEFAULT_VAULT_NAME = lambda token: f"{token.symbol()} yVault"
-DEFAULT_VAULT_SYMBOL = lambda token: f"yv{token.symbol()}"
+DEFAULT_VAULT_NAME = lambda token: f"{token.symbol()} mlnlVault"
+DEFAULT_VAULT_SYMBOL = lambda token: f"mlnl{token.symbol()}"
 
 PACKAGE_VERSION = yaml.safe_load(
     (Path(__file__).parent.parent / "ethpm-config.yaml").read_text()
@@ -39,115 +39,72 @@ def main():
     dev = accounts.load(click.prompt("Account", type=click.Choice(accounts.load())))
     click.echo(f"You are using: 'dev' [{dev.address}]")
 
-    registry = Registry.at(
-        get_address("Vault Registry", default="v2.registry.ychad.eth")
-    )
-
-    latest_release = Version(registry.latestRelease())
-    num_releases = registry.numReleases() - 1
-    target_release_index = num_releases
-    release_delta = 0
     click.echo(
         f"""
         Release Information
 
-        latest release version: {latest_release}
-          latest release index: {num_releases}
          local package version: {PACKAGE_VERSION}
         """
     )
-    use_proxy = False  # NOTE: Use a proxy to save on gas for experimental Vaults
-    if Version(PACKAGE_VERSION) <= latest_release:
+
+    spirit_ftm = Token.at("0x30748322b6e34545dbe0788c421886aeb5297789")
+    boo_ftm = Token.at("0xEc7178F4C41f346b2721907F5cF7628E388A7a58")
+    dai_spirit = Token.at("0xffbfc0446ca725b21256461e214e9d472f9be390")
+    ftm_mim = Token.at("0xb32b31dfafbd53e310390f641c7119b5b9ea0488")
+    ftm_tomb = Token.at("0x2A651563C9d3Af67aE0388a5c8F89b867038089e")
+    ftm_tshare = Token.at("0x4733bc45eF91cF7CcEcaeeDb794727075fB209F2")
+    ftm_ice_spooky = Token.at("0x623ee4a7f290d11c11315994db70fb148b13021d")
+    ftm_usdc_spirit = Token.at("0xe7E90f5a767406efF87Fdad7EB07ef407922EC1D")
+    ftm_fusdt_spooky = Token.at("0x5965e53aa80a0bcf1cd6dbdd72e6a9b2aa047410")
+    ftm_wbtc_spooky = Token.at("0xFdb9Ab8B9513Ad9E419Cf19530feE49d412C3Ee3")
+    ftm_weth_spooky = Token.at("0xf0702249F4D3A25cD3DED7859a165693685Ab577")
+
+    #tokens = [(spirit_ftm, MillennialAutoCompoundSpirit, 1), (boo_ftm, MillennialAutoCompoundBoo, 0)]
+    #tokens = [(boo_ftm, MillennialAutoCompoundBoo, 0)]
+    #tokens = [(dai_spirit, MillennialAutoCompoundSpirit, 25)]
+    #tokens = [(ftm_mim, MillennialAutoCompoundSpirit, 30)]
+    #tokens = [(ftm_tomb, MillennialAutoCompoundTomb, 0), (ftm_tshare, MillennialAutoCompoundTomb, 1)]
+    #tokens = [(ftm_ice_spooky, MillennialAutoCompoundPopsicle, 1)]
+    #tokens = [(ftm_usdc_spirit, MillennialAutoCompoundSpirit, 4)]
+    #tokens = [(ftm_fusdt_spooky, MillennialAutoCompoundBoo, 1)]
+
+    tokens = [(ftm_weth_spooky, MillennialAutoCompoundBoo, 5)]
+
+    gov = dev.address
+
+    rewards = gov
+    guardian = gov
+    management = gov
+
+    for token, strat, poolId in tokens:
+        name = click.prompt(f"Set description", default=DEFAULT_VAULT_NAME(token))
+        symbol = click.prompt(f"Set symbol", default=DEFAULT_VAULT_SYMBOL(token))
+
         click.echo(
             f"""
-        Recommended Releases
+        Vault Deployment Parameters
 
-        DO NOT USE => 0-2
-        0.3.2 => 3
-        0.3.3 => 4
-        0.3.4 => 5 (DO NOT USE) 
-        0.3.5 => 6
-        0.4.0 => 7 (DO NOT USE)
-        0.4.1 => 8
+        token address: {token.address}
+        token symbol: {DEFAULT_VAULT_SYMBOL(token)}
+            governance: {gov}
+            management: {management}
+            rewards: {rewards}
+            guardian: {guardian}
+            poolId: {poolId}
+                name: '{name}'
+                symbol: '{symbol}'
         """
         )
-        target_release_index = click.prompt(
-            "Please select a target release index from options or press enter for latest release:",
-            type=click.Choice([str(i) for i in range(num_releases + 1)]),
-            default=num_releases,
-        )
-        if click.confirm("Deploy a Proxy Vault", default="Y"):
-            use_proxy = True
-    elif Version(PACKAGE_VERSION) > latest_release:
-        target_release_index = num_releases + 1
-        if not click.confirm(f"Deploy {PACKAGE_VERSION} as new release"):
-            return
 
-    token = Token.at(get_address("ERC20 Token"))
-
-    if use_proxy:
-        gov_default = (
-            "0x16388463d60FFE0661Cf7F1f31a7D658aC790ff7"  # strategist msig, no ENS
-        )
-    else:
-        gov_default = "ychad.eth"
-    gov = get_address("Yearn Governance", default=gov_default)
-
-    rewards = get_address("Rewards contract", default="treasury.ychad.eth")
-    guardian = gov
-    if use_proxy == False:
-        guardian = get_address("Vault Guardian", default="dev.ychad.eth")
-    management = get_address("Vault Management", default="ychad.eth")
-    name = click.prompt(f"Set description", default=DEFAULT_VAULT_NAME(token))
-    symbol = click.prompt(f"Set symbol", default=DEFAULT_VAULT_SYMBOL(token))
-    release_delta = num_releases - target_release_index
-    target_release = (
-        Vault.at(registry.releases(target_release_index)).apiVersion()
-        if release_delta >= 0
-        else PACKAGE_VERSION
-    )
-
-    click.echo(
-        f"""
-    Vault Deployment Parameters
-
-         use proxy: {use_proxy}
-    target release: {target_release}
-     release delta: {release_delta}
-     token address: {token.address}
-      token symbol: {DEFAULT_VAULT_SYMBOL(token)}
-        governance: {gov}
-        management: {management}
-           rewards: {rewards}
-          guardian: {guardian}
-              name: '{name}'
-            symbol: '{symbol}'
-    """
-    )
-
-    if click.confirm("Deploy New Vault"):
-        args = [
-            token,
-            gov,
-            rewards,
-            # NOTE: Empty string `""` means no override (don't use click default tho)
-            name if name != DEFAULT_VAULT_NAME(token) else "",
-            symbol if symbol != DEFAULT_VAULT_SYMBOL(token) else "",
-        ]
-        if use_proxy:
-            # NOTE: Must always include guardian, even if default
-            args.insert(2, guardian)
-            args.append(release_delta)
-            txn_receipt = registry.newExperimentalVault(*args, {"from": dev})
-            vault = Vault.at(txn_receipt.events["NewExperimentalVault"]["vault"])
-            click.echo(f"Experimental Vault deployed [{vault.address}]")
-            click.echo("    NOTE: Vault is not registered in Registry!")
-        else:
-            args.append(guardian)
-            args.append(management)
-            vault = dev.deploy(Vault)
-            vault.initialize(*args)
-            click.echo(f"New Vault Release deployed [{vault.address}]")
-            click.echo(
-                "    NOTE: Vault is not registered in Registry, please register!"
-            )
+        if click.confirm("Deploy New Vault"):
+            args = [
+                token,
+                name if name != DEFAULT_VAULT_NAME(token) else "",
+                symbol if symbol != DEFAULT_VAULT_SYMBOL(token) else "",
+                12000
+            ]
+            vault = MillennialVault.deploy(*args, {'from': dev})
+            click.echo(f"New {name} Vault Release deployed [{vault.address}]")
+            strategy = strat.deploy(token.address, poolId, vault.address, gov, {'from': dev})
+            click.echo(f"New {name} Strategy Release deployed [{strategy.address}]")
+            vault.initialize(strategy.address, {'from': dev})
